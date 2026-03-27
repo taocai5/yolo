@@ -59,11 +59,12 @@ class HyperparameterTuner:
         # 6万数据跑100个epoch已经相当于小数据跑几千个了
         epochs_list = [50, 100, 150]
         
-        # 2. 学习率组合 (精简，主攻最有效区间)
+        # 2. 学习率组合 (覆盖更广范围)
         lr_configs = [
             {'lr0': 0.01, 'lrf': 0.01, 'name_suffix': 'lr01'},
             {'lr0': 0.005, 'lrf': 0.01, 'name_suffix': 'lr005'},
             {'lr0': 0.002, 'lrf': 0.01, 'name_suffix': 'lr002'}, # 为SGD准备的小学习率
+            {'lr0': 0.015, 'lrf': 0.005, 'name_suffix': 'lr015'}, # 稍大的学习率
         ]
         
         # 3. Batch size & Optimizer (充分压榨 A30 24GB 显存)
@@ -72,13 +73,15 @@ class HyperparameterTuner:
             {'batch': 128, 'optimizer': 'AdamW', 'name_suffix': 'b128_adamw'}, # 针对24G显存的大batch
             {'batch': 64, 'optimizer': 'SGD', 'name_suffix': 'b64_sgd'},
             {'batch': 128, 'optimizer': 'SGD', 'name_suffix': 'b128_sgd'},
+            {'batch': 64, 'optimizer': 'auto', 'name_suffix': 'b64_auto'}, # 让YOLO自己选
         ]
         
-        # 4. 损失权重组合 (精简为最具代表性的3种)
+        # 4. 损失权重组合 (全面测试各种侧重点)
         loss_configs = [
             {'box': 7.5, 'cls': 0.5, 'name_suffix': 'loss_default'}, # 官方默认
             {'box': 5.0, 'cls': 0.8, 'name_suffix': 'loss_cls_focus'}, # 侧重分类
             {'box': 9.0, 'cls': 0.3, 'name_suffix': 'loss_box_focus'}, # 侧重回归
+            {'box': 6.5, 'cls': 0.65, 'name_suffix': 'loss_balanced'}, # 均衡
         ]
         
         # 彻底版：epochs × lr × batch × loss 全面组合
@@ -110,9 +113,11 @@ class HyperparameterTuner:
         import random
         random.seed(42) # 固定种子以保证每次抽样相同
         
-        # 为了节约时间，随机抽取 10 组最具潜力的组合
-        if len(configs) > 10:
-            configs = random.sample(configs, 10)
+        # 服务器算力充足，为了找到全局最优解，扩大随机测试数量
+        # 测试 30 组配置（大约需要跑 3-5 天，A30跑得很快）
+        test_samples = 30
+        if len(configs) > test_samples:
+            configs = random.sample(configs, test_samples)
             
         print(f"\n✅ 最终生成并抽取了 {len(configs)} 组有效配置进行测试！")
         
@@ -126,8 +131,8 @@ class HyperparameterTuner:
         
         self._log_master_progress(f"本次随机抽取了 {len(configs)} 组超参数组合。")
         self._log_master_progress(f"大数据集特性：当前拥有 5.3 万训练集。")
-        self._log_master_progress(f"理论估算：若您的显卡为 RTX 4060 级别，单组配置（含 Early Stopping）约需 {estimated_hours_per_run} 小时。")
-        self._log_master_progress(f"==> 预期跑完所有组别需耗时: 约 {total_estimated_hours:.1f} 小时 ({total_estimated_hours/24:.1f} 天)。")
+        self._log_master_progress(f"理论估算：若显卡为 A30 24G 级别，因为 batch 开到了 64~128，单组配置约需 3 小时。")
+        self._log_master_progress(f"==> 预期跑完所有 {test_samples} 组别需耗时: 约 {3 * len(configs):.1f} 小时 ({(3 * len(configs))/24:.1f} 天)。")
         self._log_master_progress(f"（建议：随时可以手动中断，中断时会保留当前已经测试出的最佳配置。）\n")
         
         return configs
